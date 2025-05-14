@@ -40,6 +40,10 @@ Works best with **p5.js**, but p5 is not required.
   - `justPressedKey()` and `isPressingKey()` for keyboard
   - `justClickedMouse()` and `isPressingMouse()` for mouse
 
+- `justReleasedKey()` for one-shot input detection
+- Automatic MIDI port selection with IAC prioritization
+- Built-in debug logging via `gdc.debug = true`
+
 - Pure JavaScript: no frameworks required
 - MIT Licensed and ready for use in personal or commercial projects
 
@@ -55,15 +59,15 @@ Works best with **p5.js**, but p5 is not required.
 ```js
 function setup() {
 	createCanvas(400, 400);
+	gdc.debug = true;
 	gdc.init();
 }
 
 function draw() {
-	gdc.updateInput();
-
 	if (gdc.justPressedKey("a")) {
-		gdc.note(60, 100, 300); // MIDI note C4
+		gdc.note(60, 100, 300);
 	}
+	gdc.updateInput(); // must be last
 }
 ```
 
@@ -83,8 +87,11 @@ gdc.updateInput(); // Must be called once per frame
 
 gdc.justPressedKey("a"); // true only on the first frame "a" is pressed
 gdc.isPressingKey("a"); // true as long as "a" is held down
+gdc.justReleasedKey("a"); // true on the frame "a" is released
 gdc.justClickedMouse("left");
 gdc.isPressingMouse("left");
+
+gdc.debug = true; // enable debug logging
 ```
 
 ---
@@ -106,4 +113,13 @@ MIT License. Use freely in games, art, research, and experiments.
 ## Credits
 
 Game-Driven Composition idea by [Iceface (@H\_\_Wakabayashi)](https://t.co/VcbZwkqrxz)
+
 Library and structure by [@kurogedelic](https://github.com/kurogedelic)
+
+---
+
+## Prompt for AI Agents
+
+You can use the following instruction to generate music-enabled games using GDCKit and p5.js:
+
+> "Create a simple browser game using GDCKit and p5.js where MIDI notes are triggered interactively. Use gdc.init(), justPressedKey(), and gdc.note() to handle input and output. Make sure to call gdc.updateInput() at the end of every draw loop."

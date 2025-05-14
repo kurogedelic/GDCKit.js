@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;"
+		/>
+		<title>GDCKit: Simple Trigger</title>
+		<style>
+			body {
+				background: #111;
+				color: #eee;
+				font-family: sans-serif;
+				text-align: center;
+				margin: 0;
+				padding: 0;
+			}
+			canvas {
+				display: block;
+				margin: 0 auto;
+			}
+			#gdc-midi-out {
+				margin: 10px;
+				font-size: 1rem;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>GDCKit: Simple Trigger</h1>
+		<p>Press A to play C4</p>
+
+		<!-- Load dependencies -->
+		<script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/gh/kurogedelic/gdckit-js@latest/GDCKit.js"></script>
+
+		<script>
+			function setup() {
+				createCanvas(400, 400);
+				// Focus canvas to enable key input
+				let cnv = document.querySelector("canvas");
+				cnv.setAttribute("tabindex", "0");
+				cnv.focus();
+				window.addEventListener("keydown", (e) =>
+					console.log("Key pressed:", e.key)
+				);
+				gdc.debug = true; // moved here
+				gdc.init();
+			}
+
+			function mousePressed() {
+				let cnv = document.querySelector("canvas");
+				cnv.focus();
+			}
+
+			function draw() {
+				background(30);
+				fill(255);
+				textSize(20);
+				text("Press 'A' to trigger C4", 100, 200);
+
+				if (gdc.justPressedKey("a")) {
+					console.log("A pressed");
+					gdc.note(60, 100, 300);
+				}
+				gdc.updateInput();
+			}
+		</script>
+		<p style="margin-top: 2em">
+			<a href="index.html" style="color: #9cf">&larr; Back to example list</a>
+		</p>
+	</body>
+</html>

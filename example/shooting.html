@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;"
+		/>
+		<title>GDCKit: Shooting</title>
+		<style>
+			body {
+				background: #111;
+				color: #eee;
+				font-family: sans-serif;
+				text-align: center;
+				margin: 0;
+				padding: 0;
+			}
+			canvas {
+				display: block;
+				margin: 0 auto;
+			}
+			#gdc-midi-out {
+				margin: 10px;
+				font-size: 1rem;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>GDCKit: Shooting</h1>
+
+		<!-- Load dependencies -->
+		<script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/gh/kurogedelic/gdckit-js@latest/GDCKit.js"></script>
+
+		<script>
+			let player;
+			let bullets = [];
+			let enemies = [];
+
+			function setup() {
+				createCanvas(400, 400);
+				let cnv = document.querySelector("canvas");
+				cnv.setAttribute("tabindex", "0");
+				cnv.focus();
+				gdc.debug = true;
+				gdc.init();
+				player = { x: 50, y: height - 30, w: 20, h: 10, invincible: 0 };
+			}
+
+			function draw() {
+				background(0);
+
+				player.invincible = max(0, player.invincible - 1);
+
+				// 自機描画（無敵時は点滅）
+				if (player.invincible === 0 || frameCount % 10 >= 5) {
+					fill(255);
+					rect(player.x, player.y, player.w, player.h);
+				}
+
+				// プレイヤー移動（上下キー）
+				if (gdc.isPressingKey("ArrowUp")) player.y -= 4;
+				if (gdc.isPressingKey("ArrowDown")) player.y += 4;
+				player.y = constrain(player.y, 0, height - player.h);
+
+				// 弾の生成（無敵中は発射不可）
+				if (gdc.justReleasedKey(" ") && player.invincible === 0) {
+					bullets.push({ x: player.x + player.w / 2, y: player.y, r: 4 });
+				}
+
+				// 弾の更新・描画
+				for (let i = bullets.length - 1; i >= 0; i--) {
+					let b = bullets[i];
+					b.x += 6;
+					ellipse(b.x, b.y, b.r * 2);
+					if (b.x > width) bullets.splice(i, 1);
+				}
+
+				// 敵の生成
+				if (frameCount % 60 === 0) {
+					enemies.push({
+						x: width + 20,
+						y: random(0, height - 20),
+						w: 20,
+						h: 20,
+						note: floor(random(50, 70)),
+					});
+				}
+
+				// 敵の更新・描画
+				for (let i = enemies.length - 1; i >= 0; i--) {
+					let e = enemies[i];
+					e.x -= 2;
+					fill(200, 0, 0);
+					rect(e.x, e.y, e.w, e.h);
+
+					// 自機との当たり判定
+					if (
+						player.invincible === 0 &&
+						player.x < e.x + e.w &&
+						player.x + player.w > e.x &&
+						player.y < e.y + e.h &&
+						player.y + player.h > e.y
+					) {
+						player.invincible = 60;
+					}
+
+					// 弾と衝突判定
+					for (let j = bullets.length - 1; j >= 0; j--) {
+						let b = bullets[j];
+						if (b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h) {
+							gdc.note(e.note, 100, 300);
+							enemies.splice(i, 1);
+							bullets.splice(j, 1);
+							break;
+						}
+					}
+				}
+				gdc.updateInput();
+			}
+
+			function mousePressed() {
+				let cnv = document.querySelector("canvas");
+				cnv.focus();
+			}
+		</script>
+		<footer style="margin-top: 2em; font-size: 0.8rem; color: #777">
+			Original concept by
+			<a href="https://twitter.com/H__Wakabayashi" target="_blank"
+				>@H__Wakabayashi</a
+			>
+		</footer>
+		<p style="margin-top: 2em">
+			<a href="index.html" style="color: #9cf">&larr; Back to example list</a>
+		</p>
+	</body>
+</html>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;"
+		/>
+		<title>GDCKit: Breakout</title>
+		<style>
+			body {
+				background: #111;
+				color: #eee;
+				font-family: sans-serif;
+				text-align: center;
+				margin: 0;
+				padding: 0;
+			}
+			canvas {
+				display: block;
+				margin: 0 auto;
+			}
+			#gdc-midi-out {
+				margin: 10px;
+				font-size: 1rem;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>GDCKit: Breakout</h1>
+		<p style="margin-top: 2em">
+			<a href="index.html" style="color: #9cf">&larr; Back to example list</a>
+		</p>
+		<!-- Load dependencies -->
+		<script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/gh/kurogedelic/gdckit-js@latest/GDCKit.js"></script>
+
+		<script>
+			let ball,
+				paddle,
+				blocks = [];
+			let ballSpeed = 5;
+			let playing = false;
+
+			function setup() {
+				createCanvas(400, 400);
+				gdc.debug = true;
+				gdc.init();
+
+				let cnv = document.querySelector("canvas");
+				cnv.setAttribute("tabindex", "0");
+				cnv.focus();
+
+				ball = { x: width / 2, y: height - 30, dx: 3, dy: -5, r: 8 };
+				paddle = { x: width / 2 - 40, y: height - 10, w: 80, h: 10 };
+
+				// generate blocks
+				let cols = 10,
+					rows = 3;
+				let blockW = width / cols,
+					blockH = 20;
+				for (let r = 0; r < rows; r++) {
+					for (let c = 0; c < cols; c++) {
+						blocks.push({
+							x: c * blockW,
+							y: r * blockH + 40,
+							w: blockW - 2,
+							h: blockH - 2,
+							note: 60 + c,
+						});
+					}
+				}
+			}
+
+			function draw() {
+				background(20);
+				gdc.updateInput();
+
+				// draw paddle
+				paddle.x = constrain(mouseX - paddle.w / 2, 0, width - paddle.w);
+				rect(paddle.x, paddle.y, paddle.w, paddle.h);
+
+				// draw and move ball
+				if (playing) {
+					ball.x += ball.dx;
+					ball.y += ball.dy;
+
+					if (ball.x < 0 || ball.x > width) ball.dx *= -1;
+					if (ball.y < 0) ball.dy *= -1;
+
+					// paddle bounce
+					if (
+						ball.y + ball.r > paddle.y &&
+						ball.x > paddle.x &&
+						ball.x < paddle.x + paddle.w
+					) {
+						ball.dy *= -1;
+						ball.y = paddle.y - ball.r;
+					}
+
+					// block collision
+					for (let i = blocks.length - 1; i >= 0; i--) {
+						let b = blocks[i];
+						if (
+							ball.x > b.x &&
+							ball.x < b.x + b.w &&
+							ball.y > b.y &&
+							ball.y < b.y + b.h
+						) {
+							ball.dy *= -1;
+							gdc.note(b.note, 100, 200);
+							blocks.splice(i, 1);
+							break;
+						}
+					}
+				}
+
+				ellipse(ball.x, ball.y, ball.r * 2);
+
+				// draw blocks
+				for (let b of blocks) {
+					fill(100 + (b.note % 4) * 30, 180, 200);
+					rect(b.x, b.y, b.w, b.h);
+				}
+			}
+
+			function mousePressed() {
+				if (!playing) {
+					playing = true;
+				}
+				let cnv = document.querySelector("canvas");
+				cnv.focus();
+			}
+		</script>
+	</body>
+</html>
