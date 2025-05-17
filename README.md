@@ -1,4 +1,4 @@
-# GDCKit.js
+# [GDCKit.js](https://kurogedelic.github.io/gdckit-js/example/)
 
 **A minimal browser library for Game-Driven Composition (GDC)**
 **ゲーム駆動型作曲のための最小 JS ライブラリ**
