@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;"
+		/>
+		<title>GDCKit: Musical Fusion</title>
+		<style>
+			body {
+				background: #111;
+				color: #eee;
+				font-family: sans-serif;
+				text-align: center;
+				margin: 0;
+				padding: 0;
+			}
+			canvas {
+				display: block;
+				margin: 0 auto;
+			}
+			#gdc-midi-out {
+				margin: 10px;
+				font-size: 1rem;
+			}
+			p {
+				margin: 1em;
+			}
+			.score {
+				font-size: 24px;
+				margin-top: 10px;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>GDCKit: Musical Fusion</h1>
+		<p>マウスでフルーツを左右に動かし、クリックで落とします。同じフルーツを合体させてメロディを奏でよう！</p>
+		<div class="score">Score: <span id="score">0</span></div>
+
+		<!-- Load dependencies -->
+		<script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/gh/kurogedelic/gdckit-js@latest/GDCKit.js"></script>
+
+		<script>
+			// ゲーム設定
+			const CANVAS_WIDTH = 500;
+			const CANVAS_HEIGHT = 600;
+			const WALL_THICKNESS = 20;
+			const GRAVITY = 0.25;
+			const FRUIT_TYPES = 10; // フルーツの種類数
+			const DROP_ZONE_Y = 150; // ドロップゾーンのY座標
+
+			// フルーツのプロパティ
+			const fruitProps = [
+				{ radius: 15, color: [255, 50, 50], note: 60 },      // チェリー (C4)
+				{ radius: 25, color: [255, 150, 0], note: 62 },      // ミカン (D4)
+				{ radius: 35, color: [255, 200, 30], note: 64 },     // ミカン大 (E4)
+				{ radius: 45, color: [255, 255, 50], note: 65 },     // レモン (F4)
+				{ radius: 60, color: [200, 255, 50], note: 67 },     // キウイ (G4)
+				{ radius: 70, color: [100, 255, 100], note: 69 },    // メロン (A4)
+				{ radius: 85, color: [100, 255, 200], note: 71 },    // メロン大 (B4)
+				{ radius: 100, color: [50, 200, 255], note: 72 },    // パイナップル (C5)
+				{ radius: 120, color: [150, 100, 255], note: 74 },   // ブドウ (D5)
+				{ radius: 150, color: [255, 100, 200], note: 76 }    // スイカ (E5)
+			];
+
+			// 短調スケール (Aマイナー)
+			const scale = [57, 59, 60, 62, 64, 65, 67, 69, 71, 72];
+
+			// ゲーム変数
+			let fruits = [];
+			let nextFruit = null;
+			let nextFruitType = 0;
+			let score = 0;
+			let gameOver = false;
+			let combo = 0;
+			let lastDropTime = 0;
+			let dropDelay = 500; // ミリ秒
+			let readyToRelease = false;
+			let nextRelease = 0; // 次のフルーツをリリースできる時間
+
+			// 効果音パターン
+			const fruitMelodies = [
+				[0, 4, 7],       // マイナーコード
+				[0, 3, 7],       // メジャーコード
+				[0, 2, 7],       // サスペンデッドコード
+				[0, 4, 7, 11],   // マイナー7コード
+				[0, 5, 7],       // パワーコード
+				[0, 3, 7, 10],   // ドミナント7コード
+				[0, 3, 6, 10],   // 減7コード
+				[0, 4, 8],       // 増3コード
+				[0, 2, 4, 7, 9],  // ペンタトニック
+				[0, 3, 7, 14]     // メジャーアルペジオ拡張
+			];
+
+			function setup() {
+				// キャンバス初期化
+				createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+
+				// GDCKit初期化
+				gdc.debug = true;
+				gdc.init();
+
+				// 次のフルーツを準備
+				prepareNextFruit();
+			}
+
+			function draw() {
+				background(20);
+				
+				// ゲームオーバー判定
+				if (gameOver) {
+					drawGameOver();
+					if (gdc.justClickedMouse("left")) {
+						resetGame();
+					}
+					gdc.updateInput();
+					return;
+				}
+
+				// 壁の描画
+				drawWalls();
+				
+				// スコア表示を更新
+				document.getElementById("score").textContent = score;
+
+				// 次のフルーツ位置更新
+				updateNextFruit();
+				
+				// 既存のフルーツの更新
+				updateFruits();
+				
+				// フルーツの衝突判定
+				handleCollisions();
+				
+				// 入力処理
+				handleInput();
+
+				// GDCKit入力状態更新（最後に呼ぶ）
+				gdc.updateInput();
+			}
+
+			function drawWalls() {
+				fill(80, 80, 100);
+				// 左の壁
+				rect(0, 0, WALL_THICKNESS, height);
+				// 右の壁
+				rect(width - WALL_THICKNESS, 0, WALL_THICKNESS, height);
+				// 下の壁
+				rect(0, height - WALL_THICKNESS, width, WALL_THICKNESS);
+				
+				// 上部の投下ライン
+				stroke(255, 50, 50, 150);
+				strokeWeight(2);
+				line(0, DROP_ZONE_Y, width, DROP_ZONE_Y);
+				noStroke();
+			}
+
+			function prepareNextFruit() {
+				// 初期フルーツはランダムに小さいものから
+				nextFruitType = floor(random(0, 3));
+				nextFruit = {
+					x: width / 2,
+					y: 80,
+					vx: 0,
+					vy: 0,
+					type: nextFruitType,
+					radius: fruitProps[nextFruitType].radius,
+					color: fruitProps[nextFruitType].color,
+					note: fruitProps[nextFruitType].note,
+					stationary: false,
+					bounceCount: 0
+				};
+				
+				readyToRelease = true;
+				lastDropTime = millis();
+				nextRelease = millis() + 500; // 0.5秒後に投下可能
+			}
+
+			function updateNextFruit() {
+				if (nextFruit && readyToRelease) {
+					// マウス位置に合わせて次のフルーツを移動（X軸のみ）
+					nextFruit.x = constrain(
+						mouseX,
+						WALL_THICKNESS + nextFruit.radius,
+						width - WALL_THICKNESS - nextFruit.radius
+					);
+					
+					// 次のフルーツの描画
+					fill(fruitProps[nextFruit.type].color);
+					ellipse(nextFruit.x, nextFruit.y, nextFruit.radius * 2);
+					
+					// フルーツのタイプに応じたテクスチャや模様を追加
+					drawFruitDetails(nextFruit);
+					
+					// 投下予測線
+					stroke(255, 255, 255, 80);
+					strokeWeight(1);
+					line(nextFruit.x, nextFruit.y + nextFruit.radius, nextFruit.x, DROP_ZONE_Y);
+					noStroke();
+				}
+			}
+
+			function updateFruits() {
+				for (let i = 0; i < fruits.length; i++) {
+					let fruit = fruits[i];
+					
+					// 物理更新（重力と移動）
+					if (!fruit.stationary) {
+						fruit.vy += GRAVITY;
+						fruit.x += fruit.vx;
+						fruit.y += fruit.vy;
+						
+						// 壁との衝突判定
+						if (fruit.x - fruit.radius < WALL_THICKNESS) {
+							fruit.x = WALL_THICKNESS + fruit.radius;
+							fruit.vx *= -0.7; // 反発係数
+							playBounceSound(fruit);
+						}
+						if (fruit.x + fruit.radius > width - WALL_THICKNESS) {
+							fruit.x = width - WALL_THICKNESS - fruit.radius;
+							fruit.vx *= -0.7;
+							playBounceSound(fruit);
+						}
+						if (fruit.y + fruit.radius > height - WALL_THICKNESS) {
+							fruit.y = height - WALL_THICKNESS - fruit.radius;
+							
+							// 地面に着いたとき
+							if (fruit.vy > 1) {
+								fruit.vy *= -0.5;
+								fruit.bounceCount++;
+								playBounceSound(fruit);
+								
+								// 一定回数以上バウンドしたら静止扱い
+								if (fruit.bounceCount > 2 && abs(fruit.vy) < 2) {
+									fruit.stationary = true;
+									fruit.vy = 0;
+									fruit.vx = 0;
+								}
+							} else {
+								fruit.vy = 0;
+								fruit.stationary = true;
+							}
+						}
+					}
+					
+					// フルーツの描画
+					fill(fruitProps[fruit.type].color);
+					ellipse(fruit.x, fruit.y, fruit.radius * 2);
+					
+					// フルーツの詳細描画
+					drawFruitDetails(fruit);
+				}
+			}
+
+			function drawFruitDetails(fruit) {
+				// フルーツの種類に応じたテクスチャや模様を追加
+				switch(fruit.type) {
+					case 0: // チェリー
+						fill(220, 20, 20);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.6);
+						break;
+					case 1: // ミカン
+						fill(255, 120, 0);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.7);
+						fill(255, 150, 0);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.5);
+						break;
+					case 2: // ミカン大
+						fill(255, 170, 20);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.7);
+						fill(255, 200, 30);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.5);
+						break;
+					case 3: // レモン
+						fill(255, 240, 40);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.7);
+						fill(255, 255, 50);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.5);
+						break;
+					// 他のフルーツも同様に...
+					default:
+						// デフォルトは簡単なグラデーション効果
+						fill(fruit.color[0], fruit.color[1], fruit.color[2], 200);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.7);
+						fill(fruit.color[0], fruit.color[1], fruit.color[2], 255);
+						ellipse(fruit.x, fruit.y, fruit.radius * 1.5);
+				}
+			}
+
+			function handleCollisions() {
+				// フルーツ同士の衝突判定（1フレームに複数の合体を許可）
+				let collisionsHandled;
+				do {
+					collisionsHandled = false;
+					
+					// フルーツ同士の衝突をチェック
+					for (let i = 0; i < fruits.length; i++) {
+						for (let j = i + 1; j < fruits.length; j++) {
+							let fruit1 = fruits[i];
+							let fruit2 = fruits[j];
+							
+							// 同じタイプのフルーツの衝突を検出
+							if (fruit1.type === fruit2.type) {
+								let dx = fruit2.x - fruit1.x;
+								let dy = fruit2.y - fruit1.y;
+								let distSquared = dx * dx + dy * dy;
+								let minDist = fruit1.radius + fruit2.radius;
+								
+								// 距離の2乗で判定（高速化のため）
+								if (distSquared < minDist * minDist) {
+									// 合体処理
+									if (fruit1.type < FRUIT_TYPES - 1) {
+										// 新しいフルーツを作成（一つ大きいタイプ）
+										let newType = fruit1.type + 1;
+										let newFruit = {
+											x: (fruit1.x + fruit2.x) / 2,
+											y: (fruit1.y + fruit2.y) / 2,
+											vx: (fruit1.vx + fruit2.vx) / 2,
+											vy: (fruit1.vy + fruit2.vy) / 2,
+											type: newType,
+											radius: fruitProps[newType].radius,
+											color: fruitProps[newType].color,
+											note: fruitProps[newType].note,
+											stationary: false,
+											bounceCount: 0
+										};
+										
+										// フルーツリストを更新
+										if (j > i) {
+											fruits.splice(j, 1); // 後ろのインデックスから削除
+											fruits.splice(i, 1);
+										} else {
+											fruits.splice(i, 1);
+											fruits.splice(j, 1);
+										}
+										fruits.push(newFruit);
+										
+										// スコア加算とコンボ処理
+										combo++;
+										score += (newType + 1) * 10 * combo;
+										
+										// 合体時の音楽効果
+										playFusionMelody(newType);
+										
+										// ゲームオーバーチェック（上部までフルーツが積み上がっているか）
+										checkGameOver();
+										
+										collisionsHandled = true;
+										break;
+									}
+								}
+							}
+							// 異なるタイプのフルーツ同士の物理的反発
+							else {
+								let dx = fruit2.x - fruit1.x;
+								let dy = fruit2.y - fruit1.y;
+								let distSquared = dx * dx + dy * dy;
+								let minDist = fruit1.radius + fruit2.radius;
+								
+								if (distSquared < minDist * minDist) {
+									// 距離を計算
+									let distance = sqrt(distSquared);
+									let overlap = minDist - distance;
+									
+									// 反発の方向を計算
+									let dirX = dx / distance;
+									let dirY = dy / distance;
+									
+									// 反発力（反発係数と重なりに比例）
+									let repelPower = overlap * 0.5;
+									
+									// 位置の調整
+									if (!fruit1.stationary) {
+										fruit1.x -= dirX * repelPower * 0.5;
+										fruit1.y -= dirY * repelPower * 0.5;
+									}
+									if (!fruit2.stationary) {
+										fruit2.x += dirX * repelPower * 0.5;
+										fruit2.y += dirY * repelPower * 0.5;
+									}
+									
+									// 速度の交換（反発）
+									if (!fruit1.stationary && !fruit2.stationary) {
+										let v1x = fruit1.vx;
+										let v1y = fruit1.vy;
+										let v2x = fruit2.vx;
+										let v2y = fruit2.vy;
+										
+										// 速度ベクトルの投影
+										let dot1 = dirX * v1x + dirY * v1y;
+										let dot2 = dirX * v2x + dirY * v2y;
+										
+										// 運動量交換
+										let m1 = fruit1.radius * fruit1.radius;
+										let m2 = fruit2.radius * fruit2.radius;
+										let m1m2 = m1 + m2;
+										
+										let v1New = (dot1 * (m1 - m2) + 2 * m2 * dot2) / m1m2;
+										let v2New = (dot2 * (m2 - m1) + 2 * m1 * dot1) / m1m2;
+										
+										fruit1.vx += (v1New - dot1) * dirX * 0.8;
+										fruit1.vy += (v1New - dot1) * dirY * 0.8;
+										fruit2.vx += (v2New - dot2) * dirX * 0.8;
+										fruit2.vy += (v2New - dot2) * dirY * 0.8;
+									}
+								}
+							}
+						}
+						if (collisionsHandled) break;
+					}
+				} while (collisionsHandled);
+			}
+
+			function handleInput() {
+				// マウスクリックでフルーツを落とす
+				if (readyToRelease && nextFruit && gdc.justClickedMouse("left") && millis() > nextRelease) {
+					dropFruit();
+				}
+			}
+
+			function dropFruit() {
+				// フルーツを投下
+				readyToRelease = false;
+				nextFruit.vy = 2; // 初速度
+				fruits.push(nextFruit);
+				
+				// 投下音を鳴らす
+				gdc.note(scale[nextFruit.type], 80, 200);
+				
+				// コンボリセット
+				combo = 0;
+				
+				// 次のフルーツを用意（少し待機）
+				setTimeout(() => {
+					prepareNextFruit();
+				}, 500);
+			}
+
+			function playBounceSound(fruit) {
+				// バウンス時の音を鳴らす（弱く）
+				gdc.note(scale[fruit.type], 30 + fruit.bounceCount * 10, 100);
+			}
+
+			function playFusionMelody(fruitType) {
+				// 合体時のメロディパターン
+				let baseNote = scale[fruitType];
+				let pattern = fruitMelodies[fruitType % fruitMelodies.length];
+				
+				// アルペジオ演奏
+				pattern.forEach((interval, index) => {
+					setTimeout(() => {
+						gdc.note(baseNote + interval, 80 + index * 5, 300);
+					}, index * 150);
+				});
+			}
+
+			function checkGameOver() {
+				// ゲームオーバー判定（上部ラインを超えるフルーツがあるか）
+				for (let fruit of fruits) {
+					if (fruit.stationary && fruit.y - fruit.radius < DROP_ZONE_Y) {
+						gameOver = true;
+						
+						// ゲームオーバー音楽
+						playGameOverSound();
+						break;
+					}
+				}
+			}
+
+			function playGameOverSound() {
+				// ゲームオーバー時の音楽
+				let baseNote = 48; // C2
+				let pattern = [0, 4, 7, 12, 7, 4, 0, -5];
+				
+				pattern.forEach((interval, index) => {
+					setTimeout(() => {
+						gdc.note(baseNote + interval, 70, 300);
+					}, index * 200);
+				});
+			}
+
+			function drawGameOver() {
+				// ゲームオーバー画面
+				fill(200, 50, 50, 150);
+				rect(0, 0, width, height);
+				
+				fill(255);
+				textSize(40);
+				textAlign(CENTER, CENTER);
+				text("GAME OVER", width/2, height/2 - 50);
+				
+				textSize(24);
+				text("Final Score: " + score, width/2, height/2);
+				
+				textSize(20);
+				text("Click to restart", width/2, height/2 + 50);
+			}
+
+			function resetGame() {
+				// ゲームをリセット
+				fruits = [];
+				score = 0;
+				gameOver = false;
+				combo = 0;
+				prepareNextFruit();
+				
+				// スコア表示をリセット
+				document.getElementById("score").textContent = "0";
+			}
+			
+			// マウスボタンが押されたらドロップ
+			function mousePressed() {
+				return false; // デフォルト動作を防止
+			}
+		</script>
+		<p style="margin-top: 2em">
+			<a href="index.html" style="color: #9cf">&larr; Back to example list</a>
+		</p>
+	</body>
+</html>

@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;"
+		/>
+		<title>GDCKit: Jazzy Labyrinth</title>
+		<style>
+			body {
+				background: #111;
+				color: #eee;
+				font-family: sans-serif;
+				text-align: center;
+				margin: 0;
+				padding: 0;
+			}
+			canvas {
+				display: block;
+				margin: 0 auto;
+			}
+			#gdc-midi-out {
+				margin: 10px;
+				font-size: 1rem;
+			}
+			p {
+				margin: 1em;
+			}
+			.controls {
+				display: flex;
+				flex-wrap: wrap;
+				justify-content: center;
+				margin: 10px 0;
+				max-width: 600px;
+				margin: 0 auto;
+			}
+			.control-group {
+				margin: 0 15px 10px;
+			}
+			select, input {
+				background: #222;
+				color: #eee;
+				border: 1px solid #444;
+				padding: 4px 8px;
+				margin: 5px 0;
+				border-radius: 4px;
+			}
+			label {
+				display: block;
+				font-size: 14px;
+				margin-bottom: 5px;
+				text-align: left;
+			}
+			.slider-container {
+				display: flex;
+				align-items: center;
+			}
+			.slider-value {
+				min-width: 30px;
+				text-align: right;
+				margin-left: 8px;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>GDCKit: Jazzy Labyrinth</h1>
+		<p>矢印キーで迷路を探索。宝石を集めて視界を広げ、ゴールを目指そう！音楽パラメータを調整してジャジーな音楽を生成。</p>
+		
+		<div class="controls">
+			<div class="control-group">
+				<label for="maze-complexity">迷路の複雑さ</label>
+				<div class="slider-container">
+					<input type="range" id="maze-complexity" min="1" max="5" value="3" onchange="updateMazeComplexity()">
+					<span id="maze-complexity-value" class="slider-value">3</span>
+				</div>
+			</div>
+			<div class="control-group">
+				<label for="scale-type">スケール</label>
+				<select id="scale-type" onchange="updateMusicParameters()">
+					<option value="major">メジャー</option>
+					<option value="minor">マイナー</option>
+					<option value="dorian" selected>ドリアン</option>
+					<option value="mixolydian">ミクソリディアン</option>
+					<option value="lydian">リディアン</option>
+					<option value="minor-pentatonic">マイナーペンタトニック</option>
+					<option value="blues">ブルース</option>
+					<option value="altered">オルタード</option>
+				</select>
+			</div>
+			
+			<div class="control-group">
+				<label for="chord-complexity">コード複雑性</label>
+				<div class="slider-container">
+					<input type="range" id="chord-complexity" min="1" max="5" value="3" onchange="updateMusicParameters()">
+					<span id="chord-complexity-value" class="slider-value">3</span>
+				</div>
+			</div>
+			
+			<div class="control-group">
+				<label for="step-density">ステップ音密度</label>
+				<div class="slider-container">
+					<input type="range" id="step-density" min="1" max="10" value="3" onchange="updateMusicParameters()">
+					<span id="step-density-value" class="slider-value">3</span>
+				</div>
+			</div>
+			
+			<div class="control-group">
+				<label for="swing-amount">スウィング感</label>
+				<div class="slider-container">
+					<input type="range" id="swing-amount" min="0" max="100" value="30" onchange="updateMusicParameters()">
+					<span id="swing-amount-value" class="slider-value">30%</span>
+				</div>
+			</div>
+			
+			<div class="control-group">
+				<label for="root-note">ルート音</label>
+				<select id="root-note" onchange="updateMusicParameters()">
+					<option value="60">C (ド)</option>
+					<option value="61">C# (ド#)</option>
+					<option value="62">D (レ)</option>
+					<option value="63">D# (レ#)</option>
+					<option value="64">E (ミ)</option>
+					<option value="65">F (ファ)</option>
+					<option value="66">F# (ファ#)</option>
+					<option value="67">G (ソ)</option>
+					<option value="68">G# (ソ#)</option>
+					<option value="69">A (ラ)</option>
+					<option value="70">A# (ラ#)</option>
+					<option value="71">B (シ)</option>
+				</select>
+			</div>
+			
+			<div class="control-group">
+				<label for="auto-chord">コード自動生成</label>
+				<select id="auto-chord" onchange="updateMusicParameters()">
+				<option value="none" selected>なし</option>
+				<option value="slow">ゆっくり (16秒)</option>
+				<option value="medium">普通 (8秒)</option>
+				<option value="fast">速い (4秒)</option>
+				</select>
+			</div>
+		</div>
+
+		<!-- Load dependencies -->
+		<script src="https://cdn.jsdelivr.net/npm/p5@1.4.2/lib/p5.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/gh/kurogedelic/gdckit-js@latest/GDCKit.js"></script>
+
+		<script>
+			// ゲームの基本設定
+			const gridSize = 20; // グリッドサイズ
+			const cellSize = 30; // マスのサイズ
+			let maze = []; // 迷路データ
+			let player = { x: 1, y: 1 }; // プレイヤー位置
+			let goal = { x: 0, y: 0 }; // ゴール位置
+			let collectibles = []; // 収集アイテム
+			let fogOfWar = true; // 視界制限
+			let viewDistance = 3; // 視界距離
+			let playerHistory = []; // 移動履歴
+			let mazeComplexity = 3; // 迷路の複雑さ (1-5)
+			let cycleChance = 0.3; // サイクルを形成する確率
+			let loopChance = 0.4; // 追加の経路を作成する確率
+			
+			// 音楽パラメータ
+			let rootNote = 60; // Cを基準
+			let activeScale = []; // アクティブなスケール
+			let chordProgressions = {}; // コード進行のマップ
+			let currentProgression = []; // 現在のコード進行
+			let progressionIndex = 0; // 現在のコード位置
+			let stepSounds = []; // ステップ音パターン
+			let chordTimer = 0; // コード自動再生用タイマー
+			let chordInterval = 60 * 16; // コード変更間隔（フレーム単位）
+			let stepDensity = 3; // ステップ音の数（密度）
+			let swingAmount = 0.3; // スウィング感の量
+			let lastStepTime = 0; // 最後にステップ音を鳴らした時間
+			let useChordAutomation = false; // コード自動生成の使用有無
+			let chordComplexity = 3; // コードの複雑さ（1-5）
+
+			// 音楽パターン・スケール定義
+			const scales = {
+				'major': [0, 2, 4, 5, 7, 9, 11], // メジャースケール
+				'minor': [0, 2, 3, 5, 7, 8, 10], // マイナースケール（ナチュラル）
+				'dorian': [0, 2, 3, 5, 7, 9, 10], // ドリアン
+				'mixolydian': [0, 2, 4, 5, 7, 9, 10], // ミクソリディアン
+				'lydian': [0, 2, 4, 6, 7, 9, 11], // リディアン
+				'minor-pentatonic': [0, 3, 5, 7, 10], // マイナーペンタトニック
+				'blues': [0, 3, 5, 6, 7, 10], // ブルーススケール
+				'altered': [0, 1, 3, 4, 6, 8, 10] // オルタードスケール
+			};
+			
+			// コード進行パターン（ルート音からの相対値）
+			const progressionPatterns = {
+				'major': [
+					[[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]], // 基本進行 I-IV-V-I
+					[[0, 4, 7], [2, 5, 9], [7, 11, 14], [5, 9, 12]], // I-ii-V-IV
+					[[0, 4, 7, 11], [5, 9, 12], [7, 11, 14], [0, 4, 7]] // Imaj7-IV-V-I
+				],
+				'jazz': [
+					[[0, 4, 7, 11], [2, 5, 9, 12], [7, 11, 14, 17], [0, 3, 7, 10]], // Imaj7-ii7-V7-I7
+					[[0, 4, 7, 11], [10, 14, 17, 21], [5, 9, 12, 16], [7, 11, 14, 17]], // Imaj7-vi7-IV7-V7
+					[[0, 4, 7, 11], [5, 9, 12, 16], [10, 14, 17, 21], [3, 7, 10, 14]], // Imaj7-IV7-vi7-iii7
+					[[0, 4, 7, 11], [2, 6, 9, 13], [7, 11, 14, 18], [9, 0, 4, 7]] // Imaj7-ii7(b5)-V7(9)-I
+				]
+			};
+			
+			// コードタイプ（複雑さレベルによる）
+			const chordTypes = [
+				// レベル1: シンプルなトライアド
+				{
+					'major': [0, 4, 7], // メジャー
+					'minor': [0, 3, 7], // マイナー
+					'dominant': [0, 4, 7] // ドミナント（シンプル）
+				},
+				// レベル2: 基本的な7thコード
+				{
+					'major': [0, 4, 7, 11], // メジャー7th
+					'minor': [0, 3, 7, 10], // マイナー7th
+					'dominant': [0, 4, 7, 10] // ドミナント7th
+				},
+				// レベル3: テンションを加えた7thコード
+				{
+					'major': [0, 4, 7, 11, 14], // メジャー9th
+					'minor': [0, 3, 7, 10, 14], // マイナー9th
+					'dominant': [0, 4, 7, 10, 14] // ドミナント9th
+				},
+				// レベル4: より複雑なテンション
+				{
+					'major': [0, 4, 7, 11, 14, 18], // メジャー9th(#11)
+					'minor': [0, 3, 7, 10, 14, 17], // マイナー11th
+					'dominant': [0, 4, 7, 10, 14, 18] // ドミナント9th(13)
+				},
+				// レベル5: 高度なジャズコード
+				{
+					'major': [0, 4, 7, 11, 14, 18, 21], // メジャー13th(#11)
+					'minor': [0, 3, 7, 10, 14, 17, 21], // マイナー13th
+					'dominant': [0, 4, 7, 10, 14, 17, 21] // ドミナント13th
+				}
+			];
+			
+			// 勝利メロディのパターン
+			const victoryPatterns = {
+				'major': [0, 4, 7, 12, 16, 19, 24],
+				'minor': [0, 3, 7, 12, 15, 19, 24],
+				'jazz': [0, 4, 7, 11, 14, 18, 21, 24]
+			};
+
+			function setup() {
+				createCanvas(gridSize * cellSize, gridSize * cellSize);
+				let cnv = document.querySelector("canvas");
+				cnv.setAttribute("tabindex", "0");
+				cnv.focus();
+				gdc.debug = true;
+				gdc.init();
+				
+				// UI初期化
+				updateUIValues();
+				// 音楽パラメータ初期化
+				updateMusicParameters();
+				// 迷路の複雑さパラメータを設定
+				updateMazeComplexity();
+				// 迷路生成
+				generateMaze();
+				
+				// ゴール位置を設定
+				placeGoal();
+				
+				// 収集アイテムを配置
+				for (let i = 0; i < 5; i++) {
+					placeCollectible();
+				}
+			}
+
+			function draw() {
+				background(20);
+				drawMaze();
+				movePlayer();
+				
+				// コード自動生成
+				if (useChordAutomation) {
+					chordTimer++;
+					if (chordTimer >= chordInterval) {
+						chordTimer = 0;
+						progressionIndex = (progressionIndex + 1) % currentProgression.length;
+						playChord(currentProgression[progressionIndex], 60, 2000);
+					}
+				}
+				
+				// 移動履歴の保存（足跡効果用）
+				if (frameCount % 10 === 0) {
+					playerHistory.push({x: player.x, y: player.y});
+					if (playerHistory.length > 20) playerHistory.shift();
+				}
+				
+				gdc.updateInput();
+			}
+
+			function updateMusicParameters() {
+				// UIから値を取得
+				const scaleType = document.getElementById('scale-type').value;
+				rootNote = parseInt(document.getElementById('root-note').value);
+				chordComplexity = parseInt(document.getElementById('chord-complexity').value);
+				stepDensity = parseInt(document.getElementById('step-density').value);
+				swingAmount = parseInt(document.getElementById('swing-amount').value) / 100;
+				
+				const autoChordSetting = document.getElementById('auto-chord').value;
+				switch(autoChordSetting) {
+					case 'none':
+						useChordAutomation = false;
+						break;
+					case 'slow':
+						useChordAutomation = true;
+						chordInterval = 60 * 16; // 16秒
+						break;
+					case 'medium':
+						useChordAutomation = true;
+						chordInterval = 60 * 8; // 8秒
+						break;
+					case 'fast':
+						useChordAutomation = true;
+						chordInterval = 60 * 4; // 4秒
+						break;
+				}
+				
+				// 選択されたスケールを生成
+				activeScale = [];
+				const baseScale = scales[scaleType];
+				// 2オクターブ分のスケールを生成
+				for (let octave = 0; octave < 3; octave++) {
+					for (let note of baseScale) {
+						activeScale.push(rootNote + note + 12 * octave);
+					}
+				}
+				
+				// コード進行を設定
+				let progressionType = (scaleType === 'major' || scaleType === 'lydian') ? 'major' : 'jazz';
+				let progressions = progressionPatterns[progressionType];
+				let selectedProgression = progressions[Math.floor(Math.random() * progressions.length)];
+				
+				// コード進行をルート音に合わせて調整
+				currentProgression = [];
+				for (let chord of selectedProgression) {
+					let adjustedChord = [];
+					for (let note of chord) {
+						adjustedChord.push(rootNote + note);
+					}
+					currentProgression.push(adjustedChord);
+				}
+				
+				// 複雑さに応じたコード作成
+				currentProgression = currentProgression.map((chord, index) => {
+					// 基本コードタイプを決定（メジャー、マイナー、ドミナント）
+					let chordType;
+					if (index === 0) {
+						chordType = 'major'; // I型コード
+					} else if (index === currentProgression.length - 2) {
+						chordType = 'dominant'; // V型コード
+					} else {
+						chordType = Math.random() > 0.5 ? 'minor' : 'major';
+					}
+					
+					// 複雑さレベルに基づいてコードを構築
+					const complexity = chordComplexity - 1; // インデックス調整（0-4）
+					let baseChord = chordTypes[complexity][chordType];
+					
+					// ルート音を基準に調整
+					return baseChord.map(interval => rootNote + interval);
+				});
+				
+				// ステップ音パターンを生成
+				stepSounds = [];
+				for (let i = 0; i < stepDensity; i++) {
+					const noteIndex = Math.floor(Math.random() * (activeScale.length / 2));
+					stepSounds.push(activeScale[noteIndex]);
+				}
+				
+				// 現在のコードをすぐに再生
+				if (useChordAutomation) {
+					playChord(currentProgression[progressionIndex], 60, 2000);
+					chordTimer = 0;
+				}
+				
+				// UI値の表示更新
+				updateUIValues();
+			}
+			
+			function updateUIValues() {
+				document.getElementById('chord-complexity-value').textContent = chordComplexity;
+				document.getElementById('step-density-value').textContent = stepDensity;
+				document.getElementById('swing-amount-value').textContent = Math.round(swingAmount * 100) + '%';
+				document.getElementById('maze-complexity-value').textContent = mazeComplexity;
+			}
+			
+			function updateMazeComplexity() {
+				mazeComplexity = parseInt(document.getElementById('maze-complexity').value);
+				document.getElementById('maze-complexity-value').textContent = mazeComplexity;
+				
+				// 複雑さに応じてサイクル確率を調整
+				cycleChance = 0.1 + (mazeComplexity - 1) * 0.15; // 0.1 to 0.7
+				loopChance = 0.2 + (mazeComplexity - 1) * 0.15; // 0.2 to 0.8
+			}
+
+			function movePlayer() {
+				// 前のフレームの位置を保存
+				let prevX = player.x;
+				let prevY = player.y;
+				
+				// キー入力による移動
+				if (gdc.justPressedKey("ArrowUp") && canMove(player.x, player.y - 1)) {
+					player.y--;
+					playStepSounds("up");
+				}
+				if (gdc.justPressedKey("ArrowDown") && canMove(player.x, player.y + 1)) {
+					player.y++;
+					playStepSounds("down");
+				}
+				if (gdc.justPressedKey("ArrowLeft") && canMove(player.x - 1, player.y)) {
+					player.x--;
+					playStepSounds("left");
+				}
+				if (gdc.justPressedKey("ArrowRight") && canMove(player.x + 1, player.y)) {
+					player.x++;
+					playStepSounds("right");
+				}
+				
+				// 移動があれば処理
+				if (prevX !== player.x || prevY !== player.y) {
+					// チェックアイテム収集
+					for (let i = collectibles.length - 1; i >= 0; i--) {
+						if (player.x === collectibles[i].x && player.y === collectibles[i].y) {
+							// アイテム収集時の特別な音
+							playArpeggio();
+							viewDistance++; // 視界拡大
+							collectibles.splice(i, 1);
+							// 新しいアイテムを追加
+							placeCollectible();
+						}
+					}
+					
+					// ゴール到達
+					if (player.x === goal.x && player.y === goal.y) {
+					playVictoryMelody();
+					// 新しい迷路を生成
+					setTimeout(() => {
+					generateMaze();
+					player = { x: 1, y: 1 };
+					placeGoal();
+					collectibles = [];
+					for (let i = 0; i < 5; i++) {
+					 placeCollectible();
+					 }
+							}, 2000);
+					}
+				}
+			}
+
+			function playStepSounds(direction) {
+				// スウィング感の適用
+				const currentTime = millis();
+				if (currentTime - lastStepTime < 150 * swingAmount) {
+					return; // スウィングの「休符」部分
+				}
+				lastStepTime = currentTime;
+				
+				// 方向によって異なる音を出す
+				let offset = 0;
+				
+				switch(direction) {
+					case "up": offset = 2; break;
+					case "right": offset = 4; break;
+					case "down": offset = -3; break;
+					case "left": offset = -1; break;
+				}
+				
+				// ステップ音密度に応じて複数の音を出す
+				for (let i = 0; i < stepSounds.length; i++) {
+					// スウィング感に基づいてタイミングをずらす
+					setTimeout(() => {
+						const note = stepSounds[i] + offset;
+						const velocity = 70 + i * 5;
+						gdc.note(note, velocity, 100 + i * 20);
+					}, i * 60 * swingAmount); // スウィング感に応じて音を遅らせる
+				}
+			}
+
+			function playArpeggio() {
+				// コレクティブル獲得時のアルペジオ
+				let chord = currentProgression[progressionIndex];
+				for (let i = 0; i < chord.length; i++) {
+					// スウィング感を適用
+					const delay = i * (100 + (i % 2) * 50 * swingAmount);
+					setTimeout(() => {
+						gdc.note(chord[i], 100, 300);
+					}, delay);
+				}
+				setTimeout(() => {
+					gdc.note(chord[0] + 12, 100, 500);
+				}, chord.length * 150);
+			}
+
+			function playVictoryMelody() {
+				// ゴール到達時のメロディ
+				// ジャズフレーズをランダムに選択
+				const pattern = (Math.random() < 0.5) ? victoryPatterns.jazz : victoryPatterns.minor;
+				
+				// ルート音を基準に調整
+				const melody = pattern.map(note => rootNote + note);
+				const durations = [200, 200, 200, 300, 200, 200, 300, 500];
+				const velocities = [90, 80, 85, 95, 80, 85, 90, 100];
+				
+				// メロディを演奏（スウィング感適用）
+				for (let i = 0; i < melody.length; i++) {
+					const swingDelay = (i % 2) * 50 * swingAmount;
+					setTimeout(() => {
+						gdc.note(melody[i], velocities[i % velocities.length], durations[i % durations.length]);
+					}, i * 250 + swingDelay);
+				}
+			}
+
+			function playChord(chord, vel, duration) {
+				// コードを同時に鳴らす（少しアルペジオ風に）
+				for (let i = 0; i < chord.length; i++) {
+					const note = chord[i];
+					setTimeout(() => {
+						gdc.note(note, vel - i * 3, duration - i * 100);
+					}, i * 30 * swingAmount); // スウィング感に応じてアルペジオ感を調整
+				}
+			}
+
+			function canMove(x, y) {
+				// 移動可能かチェック
+				if (x < 0 || y < 0 || x >= gridSize || y >= gridSize) return false;
+				return !maze[y][x];  // false=通路, true=壁
+			}
+
+			function drawMaze() {
+				noStroke();
+				
+				// 迷路描画
+				for (let y = 0; y < gridSize; y++) {
+					for (let x = 0; x < gridSize; x++) {
+						let visible = !fogOfWar || dist(player.x, player.y, x, y) <= viewDistance;
+						
+						if (visible) {
+							if (maze[y][x]) {
+								// 壁
+								fill(60, 50, 80);
+								rect(x * cellSize, y * cellSize, cellSize, cellSize);
+							} else {
+								// 通路
+								fill(20, 20, 30);
+								rect(x * cellSize, y * cellSize, cellSize, cellSize);
+								
+								// 足跡の描画
+								for (let hist of playerHistory) {
+									if (hist.x === x && hist.y === y) {
+										fill(70, 100, 120, 50);
+										ellipse(x * cellSize + cellSize/2, y * cellSize + cellSize/2, cellSize/3);
+									}
+								}
+							}
+						} else {
+							// 視界外
+							fill(10, 10, 15);
+							rect(x * cellSize, y * cellSize, cellSize, cellSize);
+						}
+					}
+				}
+				
+				// コレクティブルの描画
+				for (let item of collectibles) {
+					if (!fogOfWar || dist(player.x, player.y, item.x, item.y) <= viewDistance) {
+						fill(200, 200, 50);
+						ellipse(item.x * cellSize + cellSize/2, item.y * cellSize + cellSize/2, cellSize/2);
+					}
+				}
+				
+				// ゴールの描画
+				if (!fogOfWar || dist(player.x, player.y, goal.x, goal.y) <= viewDistance) {
+					fill(50, 200, 100);
+					rect(goal.x * cellSize, goal.y * cellSize, cellSize, cellSize);
+				}
+				
+				// プレイヤーの描画
+				fill(200, 100, 200);
+				ellipse(player.x * cellSize + cellSize/2, player.y * cellSize + cellSize/2, cellSize * 0.8);
+			}
+
+			function generateMaze() {
+				// 初期化（すべて壁）
+				maze = [];
+				for (let y = 0; y < gridSize; y++) {
+					maze[y] = [];
+					for (let x = 0; x < gridSize; x++) {
+						maze[y][x] = true;
+					}
+				}
+				
+				// 深さ優先探索で迷路生成
+				carvePassage(1, 1);
+				
+				// 複雑さに応じて追加のパスを作成
+				addRandomCycles();
+			}
+
+			function carvePassage(x, y) {
+				// 現在地を通路にする
+				maze[y][x] = false;
+				
+				// 方向をランダムに並べ替え
+				let directions = [
+					[0, -2], // 上
+					[2, 0],  // 右
+					[0, 2],  // 下
+					[-2, 0]  // 左
+				];
+				shuffle(directions);
+				
+				// 各方向を試す
+				for (let [dx, dy] of directions) {
+					let nx = x + dx;
+					let ny = y + dy;
+					
+					// 範囲内で、まだ通路でない場合
+					if (nx > 0 && ny > 0 && nx < gridSize-1 && ny < gridSize-1 && maze[ny][nx]) {
+						// 間のセルも通路にする
+						maze[y + dy/2][x + dx/2] = false;
+						// 再帰的に掘り進める
+						carvePassage(nx, ny);
+					}
+				}
+			}
+			
+			function addRandomCycles() {
+				// 複雑さに応じた回数のランダムな接続を追加
+				const numCycles = floor(mazeComplexity * 3);
+				
+				// 通路の列挙
+				let passages = [];
+				for (let y = 1; y < gridSize-1; y++) {
+					for (let x = 1; x < gridSize-1; x++) {
+						if (!maze[y][x]) {
+							passages.push({x, y});
+						}
+					}
+				}
+				
+				// ランダムなサイクルを追加
+				for (let i = 0; i < numCycles; i++) {
+					if (random() < cycleChance) {
+						// ランダムな通路を選択
+						let p1 = passages[floor(random(passages.length))];
+						
+						// 近くの壁をリストアップ
+						let walls = [];
+						const dirs = [{dx: 2, dy: 0}, {dx: -2, dy: 0}, {dx: 0, dy: 2}, {dx: 0, dy: -2}];
+						
+						for (let dir of dirs) {
+							let nx = p1.x + dir.dx;
+							let ny = p1.y + dir.dy;
+							
+							// 範囲内の壁で、かつその先が通路なら追加
+							if (nx > 0 && ny > 0 && nx < gridSize-1 && ny < gridSize-1 && 
+								maze[p1.y + dir.dy/2][p1.x + dir.dx/2] && !maze[ny][nx]) {
+								walls.push({x: p1.x + dir.dx/2, y: p1.y + dir.dy/2, px: nx, py: ny});
+							}
+						}
+						
+						// 壁があれば一つ開通させる
+						if (walls.length > 0) {
+							let wall = walls[floor(random(walls.length))];
+							maze[wall.y][wall.x] = false;
+						}
+					}
+				}
+				
+				// 追加のランダムな経路（ショートカット）を作成
+				const numShortcuts = floor(mazeComplexity * 2);
+				for (let i = 0; i < numShortcuts; i++) {
+					if (random() < loopChance) {
+						// ランダムな通路を選択
+						let x = floor(random(1, gridSize-1));
+						let y = floor(random(1, gridSize-1));
+						
+						// ランダムな方向に短いトンネルを掘る
+						const dirs = [{dx: 1, dy: 0}, {dx: -1, dy: 0}, {dx: 0, dy: 1}, {dx: 0, dy: -1}];
+						let dir = dirs[floor(random(dirs.length))];
+						
+						// 短いトンネルを掘る（最大3マス）
+						let length = floor(random(1, 4));
+						for (let j = 0; j < length; j++) {
+							let nx = x + dir.dx;
+							let ny = y + dir.dy;
+							
+							if (nx > 0 && ny > 0 && nx < gridSize-1 && ny < gridSize-1) {
+								maze[ny][nx] = false;
+								x = nx;
+								y = ny;
+							} else {
+								break;
+							}
+						}
+					}
+				}
+			}
+			
+			function placeGoal() {
+				// ゴールをより遠い位置に配置（複雑さに応じて調整）
+				const minDist = 10 + mazeComplexity * 2; // 最小距離を複雑さに応じて増加
+				
+				// 候補位置のリスト
+				let candidates = [];
+				
+				// 通路のうち、スタートから一定距離以上離れた場所を探す
+				for (let y = 0; y < gridSize; y++) {
+					for (let x = 0; x < gridSize; x++) {
+						if (!maze[y][x]) { // 通路なら
+							let d = abs(x - player.x) + abs(y - player.y); // マンハッタン距離
+							if (d >= minDist) {
+								candidates.push({x, y, d});
+							}
+						}
+					}
+				}
+				
+				// 候補がなければランダムな通路を選択
+				if (candidates.length === 0) {
+					do {
+						let x = floor(random(gridSize));
+						let y = floor(random(gridSize));
+						if (!maze[y][x] && !(x === player.x && y === player.y)) {
+							goal = { x, y };
+							break;
+						}
+					} while (true);
+				} else {
+					// 距離でソートして、最も遠い候補からランダムに選択
+					candidates.sort((a, b) => b.d - a.d);
+					// 最も遠い候補の上位30%から選択
+					const topIndex = max(0, floor(candidates.length * 0.3));
+					const selected = candidates[floor(random(topIndex))];
+					goal = { x: selected.x, y: selected.y };
+				}
+			}
+
+			function placeCollectible() {
+				// ランダムな空きスペースにアイテムを配置
+				let x, y;
+				do {
+					x = floor(random(1, gridSize - 1));
+					y = floor(random(1, gridSize - 1));
+				} while (maze[y][x] || 
+						 (x === player.x && y === player.y) || 
+						 (x === goal.x && y === goal.y) ||
+						 collectibles.some(item => item.x === x && item.y === y));
+				
+				collectibles.push({x, y});
+			}
+
+			function shuffle(array) {
+				// 配列をランダムに並べ替え
+				for (let i = array.length - 1; i > 0; i--) {
+					const j = Math.floor(Math.random() * (i + 1));
+					[array[i], array[j]] = [array[j], array[i]];
+				}
+				return array;
+			}
+
+			function mousePressed() {
+				let cnv = document.querySelector("canvas");
+				cnv.focus();
+			}
+		</script>
+		<p style="margin-top: 2em">
+			<a href="index.html" style="color: #9cf">&larr; Back to example list</a>
+		</p>
+	</body>
+</html>
